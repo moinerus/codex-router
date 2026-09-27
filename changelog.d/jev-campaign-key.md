@@ -1,0 +1,1 @@
+- **Jev campaigns can use a separate capped OpenRouter key.** A hidden route to pinned Jev 1.13 keeps campaign traffic apart from the shared OpenRouter chat and Decisions credentials.

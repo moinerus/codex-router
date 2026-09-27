@@ -667,6 +667,13 @@ The Jev route is intentionally unlisted, so it cannot appear in Codex's
 conversational model picker. It is for an explicit local integration such as
 jev-pruner, never a substitute for Codex native compaction.
 
+For a spend-limited Jev campaign, use the separate hidden
+`openrouter-jev-campaign/jev-1.13` route. It uses the pinned Jev 1.13 model and
+the `openrouter-jev-campaign` provider's own key. Create an OpenRouter key with
+the campaign's lifetime spend limit, store it with
+`provider-key openrouter-jev-campaign set`, then enable that provider. The
+ordinary OpenRouter chat key and the existing Decisions route stay separate.
+
 ### opencode (Go subscription and Zen)
 
 The opencode provider family covers both of opencode's endpoints with one

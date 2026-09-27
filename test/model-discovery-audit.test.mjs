@@ -199,6 +199,8 @@ test("the discovery workflow keeps live secrets away from pull-request code", ()
   );
   for (const provider of PROVIDERS.values()) {
     if (
+      // The local Jev campaign key must never be copied into repository secrets.
+      provider.id === "openrouter-jev-campaign" ||
       provider.variantOf ||
       provider.credential?.resolver ||
       providerCatalogKind(provider) !== "models-endpoint" ||

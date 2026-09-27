@@ -40,6 +40,22 @@
         ],
         "prompt": "OpenRouter API key"
       }
+    },
+    {
+      "id": "openrouter-jev-campaign",
+      "displayName": "OpenRouter Jev Campaign",
+      "kind": "openai-compatible",
+      "ownedBy": "openrouter",
+      "protocol": "openai-decisions",
+      "baseUrl": "https://openrouter.ai/api/alpha",
+      "baseUrlEnv": "OPENROUTER_JEV_CAMPAIGN_API_BASE_URL",
+      "credential": {
+        "environment": [],
+        "file": "openrouter-jev-campaign-api-key.secret",
+        "legacyFiles": [],
+        "keychainServices": [],
+        "prompt": "OpenRouter Jev campaign API key"
+      }
     }
   ]
 }

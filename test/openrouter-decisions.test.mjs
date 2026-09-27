@@ -32,3 +32,20 @@ test("OpenRouter Decisions shares the chat key but uses its own route", () => {
   assert.equal(model?.upstreamModel, "~typesafe/jev-latest");
   assert.equal(providerModelEndpoint(PROVIDERS.get(model?.provider)), "/decisions");
 });
+
+test("the Jev campaign route has its own credential and stays out of the chat picker", () => {
+  const provider = PROVIDERS.get("openrouter-jev-campaign");
+  const chat = PROVIDERS.get("openrouter");
+  const model = MODEL_BY_SLUG.get("openrouter-jev-campaign/jev-1.13");
+
+  assert.equal(provider?.variantOf, undefined);
+  assert.equal(provider?.protocol, "openai-decisions");
+  assert.notEqual(provider?.credential?.file, chat?.credential?.file);
+  assert.deepEqual(provider?.credential?.environment, []);
+  assert.deepEqual(provider?.credential?.keychainServices, []);
+  assert.equal(model?.provider, provider?.id);
+  assert.equal(model?.upstreamModel, "typesafe/jev-1.13");
+  assert.equal(model?.listed, false);
+  assert.equal(LISTED_MODELS.some((entry) => entry.slug === model?.slug), false);
+  assert.equal(providerModelEndpoint(provider), "/decisions");
+});

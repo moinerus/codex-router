@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "slug": "openrouter-jev-campaign/jev-1.13",
+      "gatewayModel": "openrouter-jev-campaign-jev-1-13",
+      "upstreamModel": "typesafe/jev-1.13",
+      "provider": "openrouter-jev-campaign",
+      "listed": false,
+      "displayName": "Jev 1.13 (capped campaign)",
+      "description": "Pinned Jev Decisions judge using a separate spend-limited OpenRouter key.",
+      "priority": 100,
+      "contextWindow": 32768,
+      "autoCompact": 13000,
+      "inputModalities": ["text"],
+      "compHash": "openrouter-jev-campaign-jev-1-13-v1"
+    }
+  ]
+}
