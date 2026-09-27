@@ -5383,14 +5383,16 @@ test("caller embeddings stay capability-gated, bounded, cancelable, and credenti
   }
 });
 
-test("caller Decisions stay capability-gated, bounded, cancelable, and credential-isolated", async () => {
+test("caller Decisions keep a capped Jev key separate from chat and stay bounded", async () => {
   const curated = curatedOpenRouterModels();
   const stateDir = mkdtempSync(path.join(os.tmpdir(), "routing-decisions-state-"));
   writeFileSync(
     path.join(stateDir, "enabled-providers.json"),
-    `${JSON.stringify({ version: 1, providers: ["openrouter-decisions"] })}\n`,
+    `${JSON.stringify({ version: 1, providers: ["openrouter-decisions", "openrouter-jev-campaign"] })}\n`,
     { mode: 0o600 },
   );
+  const jevKeyPath = path.join(stateDir, "openrouter-jev-campaign-api-key.secret");
+  writeFileSync(jevKeyPath, "TEST_JEV_CAMPAIGN_KEY\n", { mode: 0o600 });
   const upstreamRequests = [];
   let canceledUpstream = false;
   let redirectedProviderRequests = 0;
@@ -5433,6 +5435,7 @@ test("caller Decisions stay capability-gated, bounded, cancelable, and credentia
     CODEX_ROUTER_STATE_DIR: stateDir,
     MODEL_ROUTER_USER_MODELS: curated.file,
     OPENROUTER_DECISIONS_API_BASE_URL: `http://127.0.0.1:${upstream.port}`,
+    OPENROUTER_JEV_CAMPAIGN_API_BASE_URL: `http://127.0.0.1:${upstream.port}`,
     OPENROUTER_API_KEY: "TEST_OPENROUTER_API_KEY",
     CODEX_ROUTER_QUIET: "1",
   });
@@ -5451,7 +5454,7 @@ test("caller Decisions stay capability-gated, bounded, cancelable, and credentia
     "Content-Type": "application/json",
   };
   const decision = (input) => ({
-    model: "openrouter-decisions/jev-latest",
+    model: "openrouter-jev-campaign/jev-1.13",
     state: { input },
     questions: [{ id: "keep", prompt: "Keep this item?" }],
   });
@@ -5470,26 +5473,45 @@ test("caller Decisions stay capability-gated, bounded, cancelable, and credentia
     assert.equal((await response.json()).id, "jev-test");
     assert.equal(upstreamRequests.length, 1);
     assert.equal(upstreamRequests[0].url, "/decisions");
-    assert.equal(upstreamRequests[0].headers.authorization, "Bearer TEST_OPENROUTER_API_KEY");
+    assert.equal(upstreamRequests[0].headers.authorization, "Bearer TEST_JEV_CAMPAIGN_KEY");
     assert.equal(upstreamRequests[0].headers["x-request-id"], "decision-request-1");
     assert.equal(upstreamRequests[0].headers.authorization.includes(CALLER_KEY), false);
     assert.equal(upstreamRequests[0].headers.authorization.includes(INTERNAL_KEY), false);
-    assert.equal(upstreamRequests[0].body.model, "~typesafe/jev-latest");
+    assert.equal(upstreamRequests[0].body.model, "typesafe/jev-1.13");
+
+    const shared = await fetch(`${routerBase(routerPort)}/decisions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ ...decision("shared"), model: "openrouter-decisions/jev-latest" }),
+    });
+    assert.equal(shared.status, 200);
+    assert.equal(upstreamRequests[1].headers.authorization, "Bearer TEST_OPENROUTER_API_KEY");
+    assert.equal(upstreamRequests[1].body.model, "~typesafe/jev-latest");
+
+    rmSync(jevKeyPath);
+    const missingCampaignKey = await fetch(`${routerBase(routerPort)}/decisions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(decision("missing-key")),
+    });
+    assert.equal(missingCampaignKey.status, 503);
+    assert.equal(upstreamRequests.length, 2, "the shared key must not replace a missing campaign key");
+    writeFileSync(jevKeyPath, "TEST_JEV_CAMPAIGN_KEY\n", { mode: 0o600 });
 
     const wrongSurface = await fetch(`${routerBase(routerPort)}/chat/completions`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ model: "openrouter-decisions/jev-latest", messages: [] }),
+      body: JSON.stringify({ model: "openrouter-jev-campaign/jev-1.13", messages: [] }),
     });
     assert.equal(wrongSurface.status, 404);
-    assert.equal(upstreamRequests.length, 1);
+    assert.equal(upstreamRequests.length, 2);
 
     const wrongCapability = await fetch(
       `http://127.0.0.1:${routerPort}/_codex-router/${"x".repeat(40)}/v1/decisions`,
       { method: "POST", headers, body: JSON.stringify(decision("wrong-key")) },
     );
     assert.equal(wrongCapability.status, 401);
-    assert.equal(upstreamRequests.length, 1);
+    assert.equal(upstreamRequests.length, 2);
 
     const tooLarge = await fetch(`${routerBase(routerPort)}/decisions`, {
       method: "POST",
@@ -5497,7 +5519,7 @@ test("caller Decisions stay capability-gated, bounded, cancelable, and credentia
       body: JSON.stringify(decision("x".repeat(1_024))),
     });
     assert.equal(tooLarge.status, 413);
-    assert.equal(upstreamRequests.length, 1);
+    assert.equal(upstreamRequests.length, 2);
 
     const largeResponse = await fetch(`${routerBase(routerPort)}/decisions`, {
       method: "POST",
@@ -5505,7 +5527,7 @@ test("caller Decisions stay capability-gated, bounded, cancelable, and credentia
       body: JSON.stringify(decision("oversize-response")),
     });
     assert.equal(largeResponse.status, 502);
-    assert.equal(upstreamRequests.length, 2);
+    assert.equal(upstreamRequests.length, 3);
 
     const abort = new AbortController();
     const held = fetch(`${routerBase(routerPort)}/decisions`, {
@@ -5515,10 +5537,10 @@ test("caller Decisions stay capability-gated, bounded, cancelable, and credentia
       signal: abort.signal,
     });
     const deadline = Date.now() + 5_000;
-    while (upstreamRequests.length < 3 && Date.now() < deadline) {
+    while (upstreamRequests.length < 4 && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
-    assert.equal(upstreamRequests.length, 3);
+    assert.equal(upstreamRequests.length, 4);
     abort.abort();
     await assert.rejects(held, /abort/i);
     while (!canceledUpstream && Date.now() < deadline) {
@@ -5532,7 +5554,7 @@ test("caller Decisions stay capability-gated, bounded, cancelable, and credentia
       body: JSON.stringify(decision("provider-redirect")),
     });
     assert.equal(providerRedirect.status, 502);
-    assert.equal(upstreamRequests.length, 4);
+    assert.equal(upstreamRequests.length, 5);
     assert.equal(redirectedProviderRequests, 0);
   } finally {
     await stopChild(router);
