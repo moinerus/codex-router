@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import test from 'node:test';
-import { consumeJevTicket } from '../src/jev-ticket.mjs';
+import { consumeJevTicket, issueJevTicket } from '../src/jev-ticket.mjs';
 
 const callerKey = 'a'.repeat(48);
 const now = 1_800_000_000_000;
@@ -23,6 +23,13 @@ test('accepts a signed Jev-only ticket up to its call limit', () => {
   assert.equal(consumeJevTicket(value, callerKey, used, now), true);
   assert.equal(consumeJevTicket(value, callerKey, used, now), true);
   assert.equal(consumeJevTicket(value, callerKey, used, now), false);
+});
+
+test('issues a bounded Jev-only ticket without returning the caller capability', () => {
+  const value = issueJevTicket('session-a', callerKey, now, Buffer.alloc(16));
+  assert.equal(value.includes(callerKey), false);
+  assert.equal(consumeJevTicket(value, callerKey, new Map(), now), true);
+  assert.throws(() => issueJevTicket('../other', callerKey, now, Buffer.alloc(16)));
 });
 
 test('rejects tampering, expiry, future issue time and broader scope', () => {

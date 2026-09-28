@@ -16,7 +16,7 @@ import {
   callerBaseUrl,
   secretEqual,
 } from "./caller-auth.mjs";
-import { consumeJevTicket, JEV_TICKET_MODEL, JEV_TICKET_PATH } from "./jev-ticket.mjs";
+import { consumeJevTicket, issueJevTicket, JEV_TICKET_ISSUER_PATH, JEV_TICKET_MODEL, JEV_TICKET_PATH } from "./jev-ticket.mjs";
 import {
   CHECKPOINT_WARNING,
   COMPACTION_PROMPT,
@@ -6405,6 +6405,30 @@ async function handleRequest(request, response) {
       degraded: health.degraded,
       activity: health.activity,
     });
+    return;
+  }
+
+  if (request.method === "POST" && requestUrl.pathname === JEV_TICKET_ISSUER_PATH) {
+    if (LISTEN_HOST !== "127.0.0.1" || request.socket.remoteAddress !== "127.0.0.1" ||
+        request.headers.host !== `${LISTEN_HOST}:${LISTEN_PORT}` || request.headers.origin ||
+        request.headers["x-jev-pruner"] !== "ticket-v1" ||
+        request.headers["content-type"] !== "application/json" || requestUrl.search) {
+      writeJson(response, 403, { error: { type: "authentication_error",
+        message: "Jev tickets are available only on local loopback." } });
+      return;
+    }
+    try {
+      const body = await readRequestBody(request, { maxBytes: 512 });
+      const payload = JSON.parse(body.toString("utf8"));
+      if (!payload || typeof payload !== "object" || Array.isArray(payload) ||
+          Object.keys(payload).join(",") !== "sessionId") throw new Error("Invalid Jev ticket request");
+      const ticket = issueJevTicket(payload.sessionId, CALLER_KEY);
+      response.setHeader("Cache-Control", "no-store");
+      writeJson(response, 200, { ticket });
+    } catch {
+      writeJson(response, 400, { error: { type: "invalid_request",
+        message: "Invalid Jev ticket request." } });
+    }
     return;
   }
 

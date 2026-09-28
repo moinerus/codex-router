@@ -1,0 +1,1 @@
+- **Codex can obtain Jev-only tickets without reading Router's caller secret.** A loopback-only ticket route issues short-lived, limited tickets to the Jev Pruner hook; the pinned Jev Decisions route and the provider key spend cap still bound paid use.

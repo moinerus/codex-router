@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { createHmac } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -12,11 +11,16 @@ import { openPort } from './port-pool.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const callerKey = 'test-router-caller-capability-with-sufficient-length';
 
-function ticket(now = Date.now()) {
-  const body = Buffer.from(JSON.stringify({ v: 1, scope: 'jev-decisions-v1',
-    sessionId: 'session-a', nonce: 'AAAAAAAAAAAAAAAAAAAAAA', issuedAt: now,
-    expiresAt: now + 60_000, maxCalls: 2 })).toString('base64url');
-  return `${body}.${createHmac('sha256', callerKey).update(body).digest('base64url')}`;
+function postWithHost(url, host, headers, body) {
+  return new Promise((resolve, reject) => {
+    const request = httpRequest(url, { method: 'POST',
+      headers: { ...headers, host } }, response => {
+      response.resume();
+      response.on('end', () => resolve(response.statusCode));
+    });
+    request.on('error', reject);
+    request.end(body);
+  });
 }
 
 test('a scoped ticket reaches only the Jev route and cannot select another model', async () => {
@@ -62,7 +66,30 @@ test('a scoped ticket reaches only the Jev route and cannot select another model
       catch { if (Date.now() > deadline) throw new Error(`Router did not start: ${errors}`); }
       await new Promise(resolve => setTimeout(resolve, 50));
     }
-    const authorization = `Bearer ${ticket()}`;
+    const mintUrl = `${base}/v1/jev-ticket`;
+    const mintHeaders = { 'content-type': 'application/json', 'x-jev-pruner': 'ticket-v1' };
+    const deniedMint = await fetch(mintUrl, { method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: 'session-a' }) });
+    assert.equal(deniedMint.status, 403);
+    const crossOriginMint = await fetch(mintUrl, { method: 'POST',
+      headers: { ...mintHeaders, origin: 'https://example.org' },
+      body: JSON.stringify({ sessionId: 'session-a' }) });
+    assert.equal(crossOriginMint.status, 403);
+    const rebindingMint = await postWithHost(mintUrl, `example.org:${port}`, mintHeaders,
+      JSON.stringify({ sessionId: 'session-a' }));
+    assert.equal(rebindingMint, 403);
+    const invalidMint = await fetch(mintUrl, { method: 'POST', headers: mintHeaders,
+      body: JSON.stringify({ sessionId: '../other' }) });
+    assert.equal(invalidMint.status, 400);
+    const minted = await fetch(mintUrl, { method: 'POST', headers: mintHeaders,
+      body: JSON.stringify({ sessionId: 'session-a' }) });
+    assert.equal(minted.status, 200);
+    assert.equal(minted.headers.get('cache-control'), 'no-store');
+    const { ticket } = await minted.json();
+    assert.equal(typeof ticket, 'string');
+    assert.equal(ticket.includes(callerKey), false);
+    const authorization = `Bearer ${ticket}`;
     const headers = { authorization, 'content-type': 'application/json' };
     const body = JSON.stringify({ model: 'openrouter-decisions/jev-latest',
       state: 'sample', questions: {} });
@@ -76,6 +103,11 @@ test('a scoped ticket reaches only the Jev route and cannot select another model
     assert.equal(forwarded.length, 1);
     assert.equal(forwarded[0].url, '/v1/decisions');
     assert.equal(forwarded[0].body.state, 'sample');
+    for (let index = 0; index < 17; index++) {
+      const next = await fetch(`${base}/v1/jev-decisions`, {
+        method: 'POST', headers, body: validBody });
+      assert.equal(next.status, 200);
+    }
     const exhausted = await fetch(`${base}/v1/jev-decisions`, {
       method: 'POST', headers, body: validBody });
     assert.equal(exhausted.status, 401);

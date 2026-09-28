@@ -1,10 +1,24 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 export const JEV_TICKET_MODEL = 'openrouter-jev-campaign/jev-1.13';
 export const JEV_TICKET_PATH = '/v1/jev-decisions';
+export const JEV_TICKET_ISSUER_PATH = '/v1/jev-ticket';
 const MAX_AGE_MS = 60 * 60 * 1000;
 const MAX_CALLS = 19;
 const MAX_ACTIVE = 4096;
+
+export function issueJevTicket(sessionId, callerKey, now = Date.now(), nonce = randomBytes(16)) {
+  if (!/^[A-Za-z0-9-]{1,128}$/.test(sessionId) ||
+      typeof callerKey !== 'string' || callerKey.length < 32 ||
+      !Number.isSafeInteger(now) || !Buffer.isBuffer(nonce) || nonce.length !== 16) {
+    throw new Error('Invalid Jev ticket request');
+  }
+  const body = Buffer.from(JSON.stringify({ v: 1, scope: 'jev-decisions-v1',
+    sessionId, nonce: nonce.toString('base64url'), issuedAt: now,
+    expiresAt: now + MAX_AGE_MS, maxCalls: MAX_CALLS })).toString('base64url');
+  const signature = createHmac('sha256', callerKey).update(body).digest('base64url');
+  return `${body}.${signature}`;
+}
 
 export function consumeJevTicket(token, callerKey, used, now = Date.now()) {
   if (typeof token !== 'string' || token.length > 1024 ||
