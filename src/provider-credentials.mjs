@@ -11,6 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { discoveryDisabled } from "./discovery-mode.mjs";
 import { protectPrivateFile } from "./file-security.mjs";
@@ -65,9 +66,8 @@ export function credentialPaths(provider) {
   return [...new Set(candidates)];
 }
 
-// Every other source this module consults is a `statSync`/`readFileSync` pair
-// costing microseconds. This one spawns a process, and it is the only reason
-// resolving credentials is expensive at all: on this tree a full pass over the
+// File sources cost microseconds. macOS Keychain and the Windows Jev credential
+// require a process spawn, so both are cached. On this tree a full pass over the
 // registry is 26 keychain services, measured at ~9ms per spawn -- 235ms of a
 // 235.5ms scan. Because `execFileSync` is synchronous, that quarter second is
 // spent with the event loop stopped, so a single routed turn that resolves
@@ -89,6 +89,7 @@ export function credentialPaths(provider) {
 // forwarded upstream, and it is never logged or written out from here.
 const KEYCHAIN_CACHE_TTL_MS = 30_000;
 const keychainCache = new Map();
+let windowsJevCache;
 let keychainProbes = 0;
 
 // Test-visible evidence that the memo is doing its job, without resorting to a
@@ -106,6 +107,28 @@ export function keychainProbeCount() {
 // rebuild the catalog -- and the TTL is what governs the router itself.
 export function resetKeychainCache() {
   keychainCache.clear();
+  windowsJevCache = undefined;
+}
+
+function windowsJevCredential() {
+  if (process.platform !== "win32") return undefined;
+  const now = Date.now();
+  if (windowsJevCache && now - windowsJevCache.at < KEYCHAIN_CACHE_TTL_MS) {
+    return windowsJevCache.value;
+  }
+  let value;
+  try {
+    value = execFileSync("powershell.exe", [
+      "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+      fileURLToPath(new URL("../scripts/read-windows-credential.ps1", import.meta.url)),
+      "-Target", "codex:jev",
+    ], { encoding: "utf8", timeout: 2_000, maxBuffer: 8_192,
+      windowsHide: true, stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    // A missing or unavailable credential leaves the existing file route intact.
+  }
+  windowsJevCache = { at: now, value: value || undefined };
+  return windowsJevCache.value;
 }
 
 function keychainSecret(service, now) {
@@ -226,8 +249,8 @@ export function resolveProviderCredential(providerOrId, options = {}) {
   if (provider.keyless) {
     return { value: "local", source: "local endpoint (no key required)", persistent: true };
   }
-  // The --no-discovery promise: no environment sniffing, no credential files,
-  // no Keychain spawn, no other CLI's session file, and no gcloud ADC spawn.
+  // The --no-discovery promise: no environment sniffing, credential files,
+  // OS credential-store spawn, another CLI's session file, or gcloud ADC.
   // The guard sits here, after the anonymous and keyless returns, because
   // those two read nothing -- and before everything that does, Vertex included.
   if (discoveryDisabled()) return undefined;
@@ -265,6 +288,14 @@ export function resolveProviderCredential(providerOrId, options = {}) {
       }
     } catch {
       // An unreadable or non-text file is not a usable credential source.
+    }
+  }
+  if (provider.id === "openrouter-jev-campaign") {
+    const value = (options.windowsCredentialReader ?? windowsJevCredential)();
+    if (value) {
+      const credential = resolvedCredential(provider, value,
+        "Windows Credential Manager (codex:jev)", true);
+      if (credential) return credential;
     }
   }
   const keychain = keyFromKeychain(provider);

@@ -1,0 +1,1 @@
+- **Codex Router accepts short-lived, Jev-only tickets for sandboxed output pruning.** The trusted host hook signs a ticket with the existing caller capability, while the wrapped command can call only the dedicated Jev Decisions route with bounded input and requests. The provider key remains with Router.
