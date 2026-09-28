@@ -266,6 +266,14 @@ export function resolveProviderCredential(providerOrId, options = {}) {
       }
     }
   }
+  if (provider.id === "openrouter-jev-campaign") {
+    const value = (options.windowsCredentialReader ?? windowsJevCredential)();
+    if (value) {
+      const credential = resolvedCredential(provider, value,
+        "Windows Credential Manager (codex:jev)", true);
+      if (credential) return credential;
+    }
+  }
   for (const candidate of credentialPaths(provider)) {
     let stat;
     try {
@@ -288,14 +296,6 @@ export function resolveProviderCredential(providerOrId, options = {}) {
       }
     } catch {
       // An unreadable or non-text file is not a usable credential source.
-    }
-  }
-  if (provider.id === "openrouter-jev-campaign") {
-    const value = (options.windowsCredentialReader ?? windowsJevCredential)();
-    if (value) {
-      const credential = resolvedCredential(provider, value,
-        "Windows Credential Manager (codex:jev)", true);
-      if (credential) return credential;
     }
   }
   const keychain = keyFromKeychain(provider);

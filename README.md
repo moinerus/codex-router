@@ -674,8 +674,8 @@ the campaign's lifetime spend limit, store it with
 `provider-key openrouter-jev-campaign set`, then enable that provider. The
 ordinary OpenRouter chat key and the existing Decisions route stay separate.
 On Windows, this campaign provider can also read the existing `codex:jev`
-Windows Credential Manager entry. A protected provider file takes priority
-until it is deliberately retired after the two values are verified to match.
+Windows Credential Manager entry. That entry takes priority when present; the
+protected provider file remains a fallback while an installation is verified.
 The normal `provider-key set` command still writes a protected file.
 
 Codex desktop's sandbox cannot read the host-owned caller capability. The

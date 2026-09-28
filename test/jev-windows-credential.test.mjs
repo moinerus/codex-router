@@ -20,12 +20,19 @@ test('the Jev route can use the existing Windows credential when its legacy file
   assert.equal(result?.source, 'Windows Credential Manager (codex:jev)');
 });
 
-test('a legacy file retains priority until it is deliberately retired', () => {
+test('the Windows credential takes priority over a matching legacy file', () => {
   writeFileSync(path.join(stateDir, 'jev-key.secret'), 'legacy-file-key\n');
   let reads = 0;
   const result = resolveProviderCredential(provider, {
     windowsCredentialReader: () => { reads++; return 'credential-manager-key'; },
   });
+  assert.equal(result?.value, 'credential-manager-key');
+  assert.equal(reads, 1);
+});
+
+test('the protected file remains a fallback when Credential Manager is unavailable', () => {
+  const result = resolveProviderCredential(provider, {
+    windowsCredentialReader: () => undefined,
+  });
   assert.equal(result?.value, 'legacy-file-key');
-  assert.equal(reads, 0);
 });
