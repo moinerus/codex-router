@@ -266,7 +266,8 @@ export function resolveProviderCredential(providerOrId, options = {}) {
       }
     }
   }
-  if (provider.id === "openrouter-jev-campaign") {
+  if (provider.id === "openrouter-jev-campaign" &&
+      process.env.CODEX_ROUTER_TEST_ISOLATION !== "1") {
     const value = (options.windowsCredentialReader ?? windowsJevCredential)();
     if (value) {
       const credential = resolvedCredential(provider, value,

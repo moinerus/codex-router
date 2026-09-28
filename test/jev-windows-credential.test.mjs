@@ -36,3 +36,17 @@ test('the protected file remains a fallback when Credential Manager is unavailab
   });
   assert.equal(result?.value, 'legacy-file-key');
 });
+
+test('test isolation never reads the machine-wide Windows credential', () => {
+  const previous = process.env.CODEX_ROUTER_TEST_ISOLATION;
+  process.env.CODEX_ROUTER_TEST_ISOLATION = '1';
+  try {
+    const result = resolveProviderCredential(provider, {
+      windowsCredentialReader: () => { throw new Error('Host credential was read'); },
+    });
+    assert.equal(result?.value, 'legacy-file-key');
+  } finally {
+    if (previous === undefined) delete process.env.CODEX_ROUTER_TEST_ISOLATION;
+    else process.env.CODEX_ROUTER_TEST_ISOLATION = previous;
+  }
+});
