@@ -16,6 +16,7 @@ import {
   callerBaseUrl,
   secretEqual,
 } from "./caller-auth.mjs";
+import { consumeJevTicket, issueJevTicket, JEV_TICKET_ISSUER_PATH, JEV_TICKET_MODEL, JEV_TICKET_PATH } from "./jev-ticket.mjs";
 import {
   CHECKPOINT_WARNING,
   COMPACTION_PROMPT,
@@ -320,6 +321,7 @@ const CATALOG_PATH =
 const INTERNAL_KEY =
   process.env.CODEX_ROUTER_INTERNAL_KEY || process.env.KIMI_INTERNAL_KEY;
 const CALLER_KEY = process.env.CODEX_ROUTER_CALLER_KEY;
+const usedJevTickets = new Map();
 const QUIET =
   process.env.CODEX_ROUTER_QUIET === "1" || process.env.KIMI_PROXY_QUIET === "1";
 function positiveByteLimit(value, fallback) {
@@ -6248,7 +6250,7 @@ async function handleEmbeddings(request, response, requestUrl) {
   }
 }
 
-async function handleDecisions(request, response, requestUrl) {
+async function handleDecisions(request, response, requestUrl, { scopedJev = false } = {}) {
   const startedAt = Date.now();
   const controller = new AbortController();
   const activity = beginRequestActivity({ request, response, controller });
@@ -6268,14 +6270,24 @@ async function handleDecisions(request, response, requestUrl) {
       return;
     }
     const encoded = await readRequestBody(request, {
-      maxBytes: DECISIONS_MAX_BODY_BYTES,
+      maxBytes: scopedJev ? 64 * 1024 : DECISIONS_MAX_BODY_BYTES,
       signal: controller.signal,
     });
     const body = await decodeBody(encoded, request.headers["content-encoding"], {
-      maxBytes: DECISIONS_MAX_BODY_BYTES,
+      maxBytes: scopedJev ? 64 * 1024 : DECISIONS_MAX_BODY_BYTES,
     });
     const payload = await parseBodyAsync(body);
     controller.signal.throwIfAborted();
+    if (scopedJev && (requestUrl.search || !payload || typeof payload !== "object" ||
+        Array.isArray(payload) || Object.keys(payload).sort().join(",") !== "model,questions,state" ||
+        payload.model !== JEV_TICKET_MODEL ||
+        !(typeof payload.state === "string" || (payload.state && typeof payload.state === "object")) ||
+        !payload.questions || typeof payload.questions !== "object" || Array.isArray(payload.questions))) {
+      status = 400;
+      writeJson(response, status, { error: { type: "invalid_jev_request",
+        message: "The scoped Jev route accepts only the configured Jev Decisions request." } });
+      return;
+    }
     requestedModel = typeof payload.model === "string" ? payload.model : "";
     route = MODEL_BY_SLUG.get(requestedModel);
     if (!route) {
@@ -6393,6 +6405,41 @@ async function handleRequest(request, response) {
       degraded: health.degraded,
       activity: health.activity,
     });
+    return;
+  }
+
+  if (request.method === "POST" && requestUrl.pathname === JEV_TICKET_ISSUER_PATH) {
+    if (LISTEN_HOST !== "127.0.0.1" || request.socket.remoteAddress !== "127.0.0.1" ||
+        request.headers.host !== `${LISTEN_HOST}:${LISTEN_PORT}` || request.headers.origin ||
+        request.headers["x-jev-pruner"] !== "ticket-v1" ||
+        request.headers["content-type"] !== "application/json" || requestUrl.search) {
+      writeJson(response, 403, { error: { type: "authentication_error",
+        message: "Jev tickets are available only on local loopback." } });
+      return;
+    }
+    try {
+      const body = await readRequestBody(request, { maxBytes: 512 });
+      const payload = JSON.parse(body.toString("utf8"));
+      if (!payload || typeof payload !== "object" || Array.isArray(payload) ||
+          Object.keys(payload).join(",") !== "sessionId") throw new Error("Invalid Jev ticket request");
+      const ticket = issueJevTicket(payload.sessionId, CALLER_KEY);
+      response.setHeader("Cache-Control", "no-store");
+      writeJson(response, 200, { ticket });
+    } catch {
+      writeJson(response, 400, { error: { type: "invalid_request",
+        message: "Invalid Jev ticket request." } });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && requestUrl.pathname === JEV_TICKET_PATH) {
+    if (!consumeJevTicket(bearerToken(request.headers.authorization), CALLER_KEY,
+        usedJevTickets)) {
+      writeJson(response, 401, { error: { type: "authentication_error",
+        message: "This Jev endpoint requires a valid scoped ticket." } });
+      return;
+    }
+    await handleDecisions(request, response, requestUrl, { scopedJev: true });
     return;
   }
 

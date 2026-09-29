@@ -673,6 +673,26 @@ the `openrouter-jev-campaign` provider's own key. Create an OpenRouter key with
 the campaign's lifetime spend limit, store it with
 `provider-key openrouter-jev-campaign set`, then enable that provider. The
 ordinary OpenRouter chat key and the existing Decisions route stay separate.
+On Windows, this campaign provider can also read the existing `codex:jev`
+Windows Credential Manager entry. That entry takes priority when present; the
+protected provider file remains a fallback while an installation is verified.
+The normal `provider-key set` command still writes a protected file.
+
+Codex desktop's sandbox cannot read the host-owned caller capability. The
+trusted Jev Pruner `PreToolUse` hook asks Router for a short-lived ticket on
+`POST /v1/jev-ticket` and places it in the user's temporary directory for one
+wrapped command. Router issues tickets only over `127.0.0.1`, with the exact
+local Host header, no Origin header, and a non-simple Jev request header.
+This local mint route has no caller credential, so other local processes can
+request Jev-only tickets; keep the campaign provider key's lifetime spend cap.
+The wrapper uses the ticket on `POST /v1/jev-decisions`. This endpoint accepts
+only the pinned `openrouter-jev-campaign/jev-1.13` Decisions model, a JSON body of at most
+64 KiB, and at most 19 requests per ticket within one hour. Tickets do not
+authenticate any other Router route. Router keeps the campaign provider key;
+the wrapper also requires its shared request ledger. Set a lifetime spend cap
+on the provider key before enabling paid pruning. A Router restart discards
+its in-memory ticket counters, so the provider cap remains the independent
+spend stop.
 
 ### opencode (Go subscription and Zen)
 

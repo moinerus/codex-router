@@ -88,6 +88,7 @@ function run(script, env, { nodeArgs = [] } = {}) {
       CODEX_ROUTER_CALLER_KEY: CALLER_KEY,
       CODEX_ROUTER_INTERNAL_KEY: INTERNAL_KEY,
       KIMI_INTERNAL_KEY: INTERNAL_KEY,
+      CODEX_ROUTER_TEST_ISOLATION: "1",
       CODEX_ROUTER_SHOW_ALL_MODELS: "1",
       ...env,
     },
